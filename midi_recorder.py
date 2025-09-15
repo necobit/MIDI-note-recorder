@@ -14,7 +14,9 @@ import rtmidi
 import threading
 import time
 from collections import deque
-from typing import List, Optional
+import json
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 
 class MidiRecorder:
@@ -23,6 +25,7 @@ class MidiRecorder:
         self.note_buffer = deque(maxlen=8)
         self.is_recording = False
         self.lock = threading.Lock()
+        self._auto_complete = False
         
     def list_midi_devices(self) -> List[str]:
         """利用可能なMIDI入力デバイスのリストを取得"""
@@ -73,6 +76,9 @@ class MidiRecorder:
                 with self.lock:
                     self.note_buffer.append(note_number)
                 print(f"ノートオン受信: {note_number}")
+                # 8ノート受信で自動終了フラグ
+                if len(self.note_buffer) >= 8:
+                    self._auto_complete = True
     
     def start_recording(self, device_index: int) -> bool:
         """MIDI録音を開始"""
@@ -112,6 +118,59 @@ class MidiRecorder:
         with self.lock:
             return len(self.note_buffer)
 
+    # ---------------- 16ステップ整列とJSON出力 ----------------
+    @staticmethod
+    def _alloc_lengths(n: int, total: int = 16, min_len: int = 1, max_len: int = 4) -> List[int]:
+        """n個のノートに長さ(1..4)を割当て、和がtotalになるようにする。
+        先頭から均等に配分する素直なアルゴリズム。
+        """
+        if n <= 0:
+            return []
+        base = [min_len] * n
+        remain = max(0, total - n * min_len)
+        i = 0
+        while remain > 0 and any(x < max_len for x in base):
+            if base[i] < max_len:
+                base[i] += 1
+                remain -= 1
+            i = (i + 1) % n
+        # totalを超えることはない想定（min_len*n <= total <= max_len*n を推奨）
+        return base
+
+    @staticmethod
+    def _place_into_steps(notes: List[int], lengths: List[int], steps_total: int = 16) -> List[dict]:
+        """入力順のまま、16ステップへ敷き詰める。開始位置のみ note を持ち、継続/空きは note:null, len:0。"""
+        pattern = [{"note": None, "len": 0} for _ in range(steps_total)]
+        idx = 0
+        for note, L in zip(notes, lengths):
+            if idx >= steps_total:
+                break
+            L = max(1, min(4, int(L)))
+            pattern[idx] = {"note": int(note), "len": L}
+            idx += L
+        # 余りステップは既定の null/0 のまま
+        return pattern
+
+    def export_pattern_json(self, out_path: Path, tempo: Optional[int] = None) -> Tuple[Path, dict]:
+        notes = self.get_recorded_notes()
+        n = len(notes)
+        if n == 0:
+            raise ValueError("ノートがありません")
+        # 仕様に合わせて 8 ノート基準。8未満でも均等配分で16に収める。
+        lengths = self._alloc_lengths(n, total=16, min_len=1, max_len=4)
+        pattern = self._place_into_steps(notes, lengths, steps_total=16)
+        obj = {
+            "steps_total": 16,
+            "tempo": int(tempo) if tempo else None,
+            "pattern": pattern,
+        }
+        # Noneのtempoは省略
+        if obj["tempo"] is None:
+            del obj["tempo"]
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+        return out_path, obj
+
 
 def main():
     """メイン関数"""
@@ -124,17 +183,27 @@ def main():
     if not recorder.start_recording(device_index):
         return
     
+    out_file = Path("out/recorded-pattern.json")
     try:
         while True:
-            time.sleep(0.1)
+            time.sleep(0.05)
             notes = recorder.get_recorded_notes()
-            if notes:
-                print(f"\r現在記録されているノート: {notes} (計{len(notes)}個)", end="", flush=True)
+            print(f"\r現在記録されているノート: {notes} (計{len(notes)}個)", end="", flush=True)
+            # 8ノート記録で自動終了
+            if recorder._auto_complete:
+                print("\n8ノート受信により録音を終了します。")
+                break
     except KeyboardInterrupt:
-        print("\n")
+        print("\n手動で録音を終了します。")
+    finally:
         recorder.stop_recording()
         final_notes = recorder.get_recorded_notes()
         print(f"最終的に記録されたノート: {final_notes}")
+        try:
+            path, obj = recorder.export_pattern_json(out_file)
+            print(f"JSONを書き出しました: {path}")
+        except Exception as e:
+            print(f"JSON書き出しに失敗しました: {e}")
 
 
 if __name__ == "__main__":
