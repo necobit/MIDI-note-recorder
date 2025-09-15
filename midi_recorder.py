@@ -17,6 +17,7 @@ from collections import deque
 import json
 from pathlib import Path
 from typing import List, Optional, Tuple
+import random
 
 
 class MidiRecorder:
@@ -121,21 +122,36 @@ class MidiRecorder:
     # ---------------- 16ステップ整列とJSON出力 ----------------
     @staticmethod
     def _alloc_lengths(n: int, total: int = 16, min_len: int = 1, max_len: int = 4) -> List[int]:
-        """n個のノートに長さ(1..4)を割当て、和がtotalになるようにする。
-        先頭から均等に配分する素直なアルゴリズム。
+        """n個のノートに長さ(1..4)をランダムに割当て、和がtotalになるようにする。
+        制約: 各要素は [min_len, max_len]、合計は total。
+        アルゴリズム: まず全て min_len で初期化し、残りステップを
+        まだ余力のあるインデックスからランダムに1ずつ配分する。
         """
         if n <= 0:
             return []
-        base = [min_len] * n
-        remain = max(0, total - n * min_len)
-        i = 0
-        while remain > 0 and any(x < max_len for x in base):
-            if base[i] < max_len:
-                base[i] += 1
-                remain -= 1
-            i = (i + 1) % n
-        # totalを超えることはない想定（min_len*n <= total <= max_len*n を推奨）
-        return base
+        min_len = int(min_len); max_len = int(max_len); total = int(total)
+        min_sum = n * min_len
+        max_sum = n * max_len
+        # 物理的に不可能な場合は近いところへクリップ
+        if total <= min_sum:
+            return [min_len] * n
+        if total >= max_sum:
+            return [max_len] * n
+        lengths = [min_len] * n
+        remain = total - min_sum
+        # 残りをランダム配分
+        # 各インデックスの余力（あと何増やせるか）
+        capacity = [max_len - min_len for _ in range(n)]
+        while remain > 0:
+            # まだ増やせるインデックスのみに限定
+            choices = [i for i, cap in enumerate(capacity) if cap > 0]
+            if not choices:
+                break
+            i = random.choice(choices)
+            lengths[i] += 1
+            capacity[i] -= 1
+            remain -= 1
+        return lengths
 
     @staticmethod
     def _place_into_steps(notes: List[int], lengths: List[int], steps_total: int = 16) -> List[dict]:

@@ -1,0 +1,69 @@
+{
+  "steps_total": 16,
+  "pattern": [
+    {
+      "note": 36,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    },
+    {
+      "note": 43,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    },
+    {
+      "note": 41,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    },
+    {
+      "note": 43,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    },
+    {
+      "note": 45,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    },
+    {
+      "note": 41,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    },
+    {
+      "note": 38,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    },
+    {
+      "note": 40,
+      "len": 2
+    },
+    {
+      "note": null,
+      "len": 0
+    }
+  ]
+}
